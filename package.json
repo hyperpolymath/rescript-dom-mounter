@@ -1,0 +1,17 @@
+{
+  "name": "rescript-dom-mounter",
+  "version": "1.0.0",
+  "description": "Highest-assurance DOM mounting for ReScript — 4-layer defence-in-depth",
+  "main": "src/SafeDOM.res.js",
+  "author": "Jonathan D.A. Jewell <j.d.a.jewell@open.ac.uk>",
+  "license": "SEE LICENSE IN LICENSE",
+  "peerDependencies": {
+    "rescript": "^12.0.0",
+    "@rescript/core": "^1.0.0"
+  },
+  "devDependencies": {
+    "rescript": "^12.0.0",
+    "@rescript/core": "^1.0.0"
+  },
+  "keywords": ["rescript", "dom", "xss", "sanitize", "trusted-types", "dompurify", "security"]
+}

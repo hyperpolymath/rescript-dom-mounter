@@ -1,0 +1,11 @@
+{
+  "name": "rescript-dom-mounter",
+  "sources": [
+    {"dir": "src/Core", "subdirs": true},
+    {"dir": "src", "subdirs": false}
+  ],
+  "package-specs": [{"module": "esmodule", "in-source": true}],
+  "suffix": ".res.js",
+  "dependencies": ["@rescript/core"],
+  "compiler-flags": ["-w -26-27"]
+}
