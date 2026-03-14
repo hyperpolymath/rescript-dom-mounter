@@ -1,35 +1,36 @@
-= {{PROJECT_NAME}} - Citation Guide
+= rescript-dom-mounter - Citation Guide
 :toc:
 
 == BibTeX
 
 [source,bibtex]
 ----
-@software{{{PROJECT_NAME}}_{{CURRENT_YEAR}},
-  author = {{{AUTHOR_LAST}}, {{AUTHOR_FIRST}}},
-  title = {{{PROJECT_NAME}}},
-  year = {{{CURRENT_YEAR}}},
-  url = {https://github.com/{{OWNER}}/{{PROJECT_NAME}}},
+@software{rescript-dom-mounter_2026,
+  author = {Jewell, Jonathan D.A.},
+  title = {rescript-dom-mounter},
+  year = {2026},
+  url = {https://github.com/hyperpolymath/rescript-dom-mounter},
   license = {PMPL-1.0-or-later}
 }
 ----
 
 == Harvard Style
 
-{{AUTHOR_LAST}}, {{AUTHOR_INITIALS}} ({{CURRENT_YEAR}}) _{{PROJECT_NAME}}_ [Computer software]. Available at: https://github.com/{{OWNER}}/{{PROJECT_NAME}}
+Jewell, J.D.A. (2026) _rescript-dom-mounter_ [Computer software]. Available at: https://github.com/hyperpolymath/rescript-dom-mounter
 
 == OSCOLA
 
-{{AUTHOR}}, '{{PROJECT_NAME}}' ({{CURRENT_YEAR}}) <https://github.com/{{OWNER}}/{{PROJECT_NAME}}>
+Jonathan D.A. Jewell, 'rescript-dom-mounter' (2026) <https://github.com/hyperpolymath/rescript-dom-mounter>
 
 == MLA
 
-{{AUTHOR_LAST}}, {{AUTHOR_FIRST}} "{{PROJECT_NAME}}." {{CURRENT_YEAR}}, github.com/{{OWNER}}/{{PROJECT_NAME}}.
+Jewell, Jonathan D.A. "rescript-dom-mounter." 2026, github.com/hyperpolymath/rescript-dom-mounter.
 
 == APA 7
 
-{{AUTHOR_LAST}}, {{AUTHOR_INITIALS}} ({{CURRENT_YEAR}}). _{{PROJECT_NAME}}_ [Computer software]. GitHub. https://github.com/{{OWNER}}/{{PROJECT_NAME}}
+Jewell, J.D.A. (2026). _rescript-dom-mounter_ [Computer software]. GitHub. https://github.com/hyperpolymath/rescript-dom-mounter
 
 == See Also
 
-* link:CITATION.cff[CITATION.cff]
+* link:../../CITATION.cff[CITATION.cff]
+* link:../../codemeta.json[codemeta.json]
