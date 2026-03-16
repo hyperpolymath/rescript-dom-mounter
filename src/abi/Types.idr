@@ -1,3 +1,4 @@
+-- SPDX-License-Identifier: PMPL-1.0-or-later
 -- ABI Type Definitions for SafeDOM (Simplified for Idris2 0.8.0)
 --
 -- Core safety guarantees proven at compile-time:

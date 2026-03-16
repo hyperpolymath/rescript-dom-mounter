@@ -1,3 +1,4 @@
+-- SPDX-License-Identifier: PMPL-1.0-or-later
 -- Foreign Function Interface Declarations for SafeDOM
 |||
 -- This module declares all C-compatible functions that will be
