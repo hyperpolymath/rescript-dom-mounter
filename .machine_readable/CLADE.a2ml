@@ -1,0 +1,26 @@
+# SPDX-License-Identifier: PMPL-1.0-or-later
+# Clade declaration — part of the gv-clade-index registry
+# See: https://github.com/hyperpolymath/gv-clade-index
+
+[identity]
+uuid = "49a4c2c0-6c7e-5752-afd2-0da3dccae515"
+primary-forge = "github"
+primary-owner = "hyperpolymath"
+canonical-name = "rescript-dom-mounter"
+prefixed-name = "dx-rescript-dom-mounter"
+
+[clade]
+primary = "dx"
+secondary = []
+assigned = "2026-03-16"
+rationale = ""
+
+[forges]
+github = "hyperpolymath/rescript-dom-mounter"
+gitlab = "hyperpolymath/rescript-dom-mounter"
+bitbucket = "hyperpolymath/rescript-dom-mounter"
+
+[lineage]
+type = "standalone"
+parent = "ReScript DOM mounting utility"
+born = "2026-03-16"
