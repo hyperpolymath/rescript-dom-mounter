@@ -100,3 +100,8 @@ sync_report*.txt
 
 # Hypatia scan cache (local-only)
 .hypatia/
+
+# ReScript/OCaml compiler artifacts
+*.cmt
+*.cmti
+*.cmi
