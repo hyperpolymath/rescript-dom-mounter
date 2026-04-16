@@ -1,167 +1,217 @@
--- SPDX-License-Identifier: PMPL-1.0-or-later
--- Foreign Function Interface Declarations for SafeDOM
+||| SPDX-License-Identifier: PMPL-1.0-or-later
+||| Foreign Function Interface Declarations for RESCRIPT_DOM_MOUNTER
 |||
--- This module declares all C-compatible functions that will be
--- implemented in the Zig FFI layer (ffi/zig/).
+||| This module declares all C-compatible functions that will be
+||| implemented in the Zig FFI layer.
 |||
--- FFI SAFETY GUARANTEES:
--- 1. All pointer parameters proven non-null via types
--- 2. String lengths tracked at type level
--- 3. Result codes map to ReScript variants
--- 4. Memory ownership clear at interface boundary
-|||
--- @author Jonathan D.A. Jewell <j.d.a.jewell@open.ac.uk>
+||| All functions are declared here with type signatures and safety proofs.
+||| Implementations live in ffi/zig/
 
-module ABI.Foreign
+module RescriptDomMounter.ABI.Foreign
 
-import ABI.Types
-import ABI.Layout
-import Data.Bits
-import Data.String
+import RescriptDomMounter.ABI.Types
+import RescriptDomMounter.ABI.Layout
 
 %default total
 
--- --------------------------------------------------------------------------------
--- Primitive FFI Declarations
--- --------------------------------------------------------------------------------
+--------------------------------------------------------------------------------
+-- Library Lifecycle
+--------------------------------------------------------------------------------
 
--- Validate a CSS selector string
--- Returns: 0 = valid, 1 = empty, 2 = too long, 3 = invalid chars
-%foreign "C:safedom_validate_selector, libsafedom"
-prim__validateSelector : String -> Bits32 -> PrimIO Bits32
-
--- Validate HTML content
--- Returns: 0 = valid, 1 = too large, 2 = unbalanced tags
-%foreign "C:safedom_validate_html, libsafedom"
-prim__validateHTML : String -> Bits32 -> PrimIO Bits32
-
--- Find DOM element by selector
--- Returns: element pointer (0 = not found)
-%foreign "C:safedom_find_element, libsafedom"
-prim__findElement : String -> PrimIO Bits64
-
--- Mount HTML content to DOM element
--- Returns: 0 = success, 1 = null element, 2 = mount failed
-%foreign "C:safedom_mount, libsafedom"
-prim__mount : Bits64 -> String -> PrimIO Bits32
-
--- Get length of a string (for validation)
-%foreign "C:strlen, libc"
-prim__strlen : String -> PrimIO Bits32
-
--- --------------------------------------------------------------------------------
--- Safe Wrapper Functions
--- --------------------------------------------------------------------------------
-
--- Safely validate a CSS selector with length bounds checking
+||| Initialize the library
+||| Returns a handle to the library instance, or Nothing on failure
 export
-validateSelector : String -> IO (Either String ValidatedSelector)
-validateSelector str = do
-  len <- primIO (prim__strlen str)
-  if len == 0
-    then pure (Left "Selector cannot be empty")
-    else if len > 255
-      then pure (Left "Selector exceeds maximum length (255 characters)")
-      else do
-        result <- primIO (prim__validateSelector str len)
-        case result of
-          0 => pure (mkValidatedSelector str)  -- Use smart constructor
-          1 => pure (Left "Selector is empty")
-          2 => pure (Left "Selector too long")
-          3 => pure (Left "Selector contains invalid characters")
-          _ => pure (Left "Unknown validation error")
+%foreign "C:rescript_dom_mounter_init, librescript_dom_mounter"
+prim__init : PrimIO Bits64
 
--- Safely validate HTML content with size bounds checking
+||| Safe wrapper for library initialization
 export
-validateHTML : String -> IO (Either String ValidatedHTML)
-validateHTML str = do
-  len <- primIO (prim__strlen str)
-  if len > 1048576
-    then pure (Left "HTML content exceeds maximum size (1MB)")
+init : IO (Maybe Handle)
+init = do
+  ptr <- primIO prim__init
+  pure (createHandle ptr)
+
+||| Clean up library resources
+export
+%foreign "C:rescript_dom_mounter_free, librescript_dom_mounter"
+prim__free : Bits64 -> PrimIO ()
+
+||| Safe wrapper for cleanup
+export
+free : Handle -> IO ()
+free h = primIO (prim__free (handlePtr h))
+
+--------------------------------------------------------------------------------
+-- Core Operations
+--------------------------------------------------------------------------------
+
+||| Example operation: process data
+export
+%foreign "C:rescript_dom_mounter_process, librescript_dom_mounter"
+prim__process : Bits64 -> Bits32 -> PrimIO Bits32
+
+||| Safe wrapper with error handling
+export
+process : Handle -> Bits32 -> IO (Either Result Bits32)
+process h input = do
+  result <- primIO (prim__process (handlePtr h) input)
+  pure $ case result of
+    0 => Left Error
+    n => Right n
+
+--------------------------------------------------------------------------------
+-- String Operations
+--------------------------------------------------------------------------------
+
+||| Convert C string to Idris String
+export
+%foreign "support:idris2_getString, libidris2_support"
+prim__getString : Bits64 -> String
+
+||| Free C string
+export
+%foreign "C:rescript_dom_mounter_free_string, librescript_dom_mounter"
+prim__freeString : Bits64 -> PrimIO ()
+
+||| Get string result from library
+export
+%foreign "C:rescript_dom_mounter_get_string, librescript_dom_mounter"
+prim__getResult : Bits64 -> PrimIO Bits64
+
+||| Safe string getter
+export
+getString : Handle -> IO (Maybe String)
+getString h = do
+  ptr <- primIO (prim__getResult (handlePtr h))
+  if ptr == 0
+    then pure Nothing
     else do
-      result <- primIO (prim__validateHTML str len)
-      case result of
-        0 => pure (mkValidatedHTML str)  -- Use smart constructor
-        1 => pure (Left "HTML content too large")
-        2 => pure (Left "HTML tags are unbalanced")
-        _ => pure (Left "Unknown validation error")
+      let str = prim__getString ptr
+      primIO (prim__freeString ptr)
+      pure (Just str)
 
--- Safely find DOM element by validated selector
--- Returns Nothing if element not found (compile-time null safety)
+--------------------------------------------------------------------------------
+-- Array/Buffer Operations
+--------------------------------------------------------------------------------
+
+||| Process array data
 export
-findElement : ValidatedSelector -> IO (Maybe DOMElement)
-findElement selector = do
-  ptr <- primIO (prim__findElement selector.content)
-  pure (createDOMElement ptr)
+%foreign "C:rescript_dom_mounter_process_array, librescript_dom_mounter"
+prim__processArray : Bits64 -> Bits64 -> Bits32 -> PrimIO Bits32
 
--- Safely mount validated HTML to a validated DOM element
--- All preconditions proven at compile-time
+||| Safe array processor
 export
-mount : DOMElement -> ValidatedHTML -> IO (Either String ())
-mount elem html = do
-  result <- primIO (prim__mount elem.ptr html.content)
-  case result of
-    0 => pure (Right ())
-    1 => pure (Left "Null element (impossible - proven non-null)")
-    2 => pure (Left "Mount operation failed")
-    _ => pure (Left "Unknown mount error")
+processArray : Handle -> (buffer : Bits64) -> (len : Bits32) -> IO (Either Result ())
+processArray h buf len = do
+  result <- primIO (prim__processArray (handlePtr h) buf len)
+  pure $ case resultFromInt result of
+    Just Ok => Right ()
+    Just err => Left err
+    Nothing => Left Error
+  where
+    resultFromInt : Bits32 -> Maybe Result
+    resultFromInt 0 = Just Ok
+    resultFromInt 1 = Just Error
+    resultFromInt 2 = Just InvalidParam
+    resultFromInt 3 = Just OutOfMemory
+    resultFromInt 4 = Just NullPointer
+    resultFromInt _ = Nothing
 
--- --------------------------------------------------------------------------------
--- High-Level Safe API
--- --------------------------------------------------------------------------------
+--------------------------------------------------------------------------------
+-- Error Handling
+--------------------------------------------------------------------------------
 
--- Complete mount operation with all safety checks
--- This is the main entry point from ReScript
+||| Get last error message
 export
-safeMountHTML : String -> String -> IO MountResult
-safeMountHTML selectorStr htmlStr = do
-  -- Validate selector
-  selectorResult <- validateSelector selectorStr
-  case selectorResult of
-    Left err => pure (Failed $ "Invalid selector: " ++ err)
-    Right validSelector => do
-      -- Validate HTML
-      htmlResult <- validateHTML htmlStr
-      case htmlResult of
-        Left err => pure (Failed $ "Invalid HTML: " ++ err)
-        Right validHTML => do
-          -- Find element
-          elemMaybe <- findElement validSelector
-          case elemMaybe of
-            Nothing => pure (NotFound validSelector)
-            Just elem => do
-              -- Mount HTML
-              mountResult <- mount elem validHTML
-              case mountResult of
-                Left err => pure (Failed err)
-                Right () => pure (MountedAt elem)
+%foreign "C:rescript_dom_mounter_last_error, librescript_dom_mounter"
+prim__lastError : PrimIO Bits64
 
--- --------------------------------------------------------------------------------
--- Batch Operations
--- --------------------------------------------------------------------------------
-
--- Mount to multiple selectors (batch operation)
+||| Retrieve last error as string
 export
-batchMount : List (String, String) -> IO (List MountResult)
-batchMount pairs = traverse (uncurry safeMountHTML) pairs
+lastError : IO (Maybe String)
+lastError = do
+  ptr <- primIO prim__lastError
+  if ptr == 0
+    then pure Nothing
+    else pure (Just (prim__getString ptr))
 
--- --------------------------------------------------------------------------------
--- Verification Functions
--- --------------------------------------------------------------------------------
-
--- Test that FFI functions are properly linked
+||| Get error description for result code
 export
-verifyFFI : IO ()
-verifyFFI = do
-  putStrLn "SafeDOM FFI Verification:"
-  -- Test selector validation
-  testSel <- validateSelector "#app"
-  case testSel of
-    Right _ => putStrLn "  ✓ Selector validation linked"
-    Left err => putStrLn $ "  ✗ Selector validation failed: " ++ err
-  -- Test HTML validation
-  testHTML <- validateHTML "<div>test</div>"
-  case testHTML of
-    Right _ => putStrLn "  ✓ HTML validation linked"
-    Left err => putStrLn $ "  ✗ HTML validation failed: " ++ err
-  putStrLn "  FFI functions verified"
+errorDescription : Result -> String
+errorDescription Ok = "Success"
+errorDescription Error = "Generic error"
+errorDescription InvalidParam = "Invalid parameter"
+errorDescription OutOfMemory = "Out of memory"
+errorDescription NullPointer = "Null pointer"
+
+--------------------------------------------------------------------------------
+-- Version Information
+--------------------------------------------------------------------------------
+
+||| Get library version
+export
+%foreign "C:rescript_dom_mounter_version, librescript_dom_mounter"
+prim__version : PrimIO Bits64
+
+||| Get version as string
+export
+version : IO String
+version = do
+  ptr <- primIO prim__version
+  pure (prim__getString ptr)
+
+||| Get library build info
+export
+%foreign "C:rescript_dom_mounter_build_info, librescript_dom_mounter"
+prim__buildInfo : PrimIO Bits64
+
+||| Get build information
+export
+buildInfo : IO String
+buildInfo = do
+  ptr <- primIO prim__buildInfo
+  pure (prim__getString ptr)
+
+--------------------------------------------------------------------------------
+-- Callback Support
+--------------------------------------------------------------------------------
+
+||| Callback function type (C ABI)
+public export
+Callback : Type
+Callback = Bits64 -> Bits32 -> Bits32
+
+||| Register a callback
+export
+%foreign "C:rescript_dom_mounter_register_callback, librescript_dom_mounter"
+prim__registerCallback : Bits64 -> AnyPtr -> PrimIO Bits32
+
+||| Safe callback registration
+export
+registerCallback : Handle -> Callback -> IO (Either Result ())
+registerCallback h cb = do
+  result <- primIO (prim__registerCallback (handlePtr h) (cast cb))
+  pure $ case resultFromInt result of
+    Just Ok => Right ()
+    Just err => Left err
+    Nothing => Left Error
+  where
+    resultFromInt : Bits32 -> Maybe Result
+    resultFromInt 0 = Just Ok
+    resultFromInt _ = Just Error
+
+--------------------------------------------------------------------------------
+-- Utility Functions
+--------------------------------------------------------------------------------
+
+||| Check if library is initialized
+export
+%foreign "C:rescript_dom_mounter_is_initialized, librescript_dom_mounter"
+prim__isInitialized : Bits64 -> PrimIO Bits32
+
+||| Check initialization status
+export
+isInitialized : Handle -> IO Bool
+isInitialized h = do
+  result <- primIO (prim__isInitialized (handlePtr h))
+  pure (result /= 0)

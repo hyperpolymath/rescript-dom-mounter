@@ -1,213 +1,193 @@
-// SafeDOM FFI Implementation
+// RESCRIPT_DOM_MOUNTER FFI Implementation
 //
 // This module implements the C-compatible FFI declared in src/abi/Foreign.idr
 // All types and layouts must match the Idris2 ABI definitions.
 //
 // SPDX-License-Identifier: PMPL-1.0-or-later
-// @author Jonathan D.A. Jewell <j.d.a.jewell@open.ac.uk>
 
 const std = @import("std");
 
-// Version information
-const VERSION = "1.0.0";
-const ABI_VERSION: u32 = 1;
+// Version information (keep in sync with project)
+const VERSION = "0.1.0";
+const BUILD_INFO = "RESCRIPT_DOM_MOUNTER built with Zig " ++ @import("builtin").zig_version_string;
+
+/// Thread-local error storage
+threadlocal var last_error: ?[]const u8 = null;
+
+/// Set the last error message
+fn setError(msg: []const u8) void {
+    last_error = msg;
+}
+
+/// Clear the last error
+fn clearError() void {
+    last_error = null;
+}
 
 //==============================================================================
-// Result Codes (must match src/abi/Types.idr)
+// Core Types (must match src/abi/Types.idr)
 //==============================================================================
 
-const ValidationResult = enum(c_uint) {
-    valid = 0,
-    empty = 1,
-    too_long = 2,
-    invalid_chars = 3,
+/// Result codes (must match Idris2 Result type)
+pub const Result = enum(c_int) {
+    ok = 0,
+    @"error" = 1,
+    invalid_param = 2,
+    out_of_memory = 3,
+    null_pointer = 4,
 };
 
-const HTMLValidationResult = enum(c_uint) {
-    valid = 0,
-    too_large = 1,
-    unbalanced_tags = 2,
-};
-
-const MountResult = enum(c_uint) {
-    success = 0,
-    null_element = 1,
-    mount_failed = 2,
+/// Library handle (opaque to prevent direct access)
+pub const Handle = opaque {
+    // Internal state hidden from C
+    allocator: std.mem.Allocator,
+    initialized: bool,
+    // Add your fields here
 };
 
 //==============================================================================
-// CSS Selector Validation
+// Library Lifecycle
 //==============================================================================
 
-/// Validate a CSS selector
-/// Returns: 0 = valid, 1 = empty, 2 = too long, 3 = invalid chars
-export fn safedom_validate_selector(selector: [*:0]const u8, len: c_uint) c_uint {
-    if (len == 0) {
-        return @intFromEnum(ValidationResult.empty);
-    }
+/// Initialize the library
+/// Returns a handle, or null on failure
+export fn rescript_dom_mounter_init() ?*Handle {
+    const allocator = std.heap.c_allocator;
 
-    if (len > 255) {
-        return @intFromEnum(ValidationResult.too_long);
-    }
+    const handle = allocator.create(Handle) catch {
+        setError("Failed to allocate handle");
+        return null;
+    };
 
-    const slice = selector[0..len];
+    // Initialize handle
+    handle.* = .{
+        .allocator = allocator,
+        .initialized = true,
+    };
 
-    // Valid CSS selector characters: alphanumeric, hyphen, underscore, hash,
-    // dot, space, brackets, colon, parens, greater, tilde, plus, equals
-    for (slice) |c| {
-        const is_alphanum = (c >= 'a' and c <= 'z') or
-                           (c >= 'A' and c <= 'Z') or
-                           (c >= '0' and c <= '9');
-        const is_special = c == '-' or c == '_' or c == '#' or c == '.' or
-                          c == ' ' or c == '[' or c == ']' or c == ':' or
-                          c == '(' or c == ')' or c == '>' or c == '~' or
-                          c == '+' or c == '=';
+    clearError();
+    return handle;
+}
 
-        if (!is_alphanum and !is_special) {
-            return @intFromEnum(ValidationResult.invalid_chars);
-        }
-    }
+/// Free the library handle
+export fn rescript_dom_mounter_free(handle: ?*Handle) void {
+    const h = handle orelse return;
+    const allocator = h.allocator;
 
-    return @intFromEnum(ValidationResult.valid);
+    // Clean up resources
+    h.initialized = false;
+
+    allocator.destroy(h);
+    clearError();
 }
 
 //==============================================================================
-// HTML Validation
+// Core Operations
 //==============================================================================
 
-/// Count occurrences of a pattern in a string
-fn countPattern(haystack: []const u8, needle: []const u8) usize {
-    var count: usize = 0;
-    var i: usize = 0;
+/// Process data (example operation)
+export fn rescript_dom_mounter_process(handle: ?*Handle, input: u32) Result {
+    const h = handle orelse {
+        setError("Null handle");
+        return .null_pointer;
+    };
 
-    while (i + needle.len <= haystack.len) : (i += 1) {
-        if (std.mem.eql(u8, haystack[i..i + needle.len], needle)) {
-            count += 1;
-        }
+    if (!h.initialized) {
+        setError("Handle not initialized");
+        return .@"error";
     }
 
-    return count;
-}
+    // Example processing logic
+    _ = input;
 
-/// Simple check for balanced HTML tags
-/// This is a basic heuristic - more sophisticated parsing would be needed for production
-fn areTagsBalanced(html: []const u8) bool {
-    var open_count: usize = 0;
-    var close_count: usize = 0;
-    var self_closing_count: usize = 0;
-    var i: usize = 0;
-
-    while (i < html.len) : (i += 1) {
-        if (html[i] == '<') {
-            // Check if it's a closing tag
-            if (i + 1 < html.len and html[i + 1] == '/') {
-                close_count += 1;
-                // Skip to end of tag
-                while (i < html.len and html[i] != '>') : (i += 1) {}
-            } else {
-                // Opening tag or self-closing
-                var is_self_closing = false;
-                const tag_start = i;
-                while (i < html.len and html[i] != '>') : (i += 1) {
-                    if (html[i] == '/' and i + 1 < html.len and html[i + 1] == '>') {
-                        is_self_closing = true;
-                    }
-                }
-                if (is_self_closing) {
-                    self_closing_count += 1;
-                } else {
-                    // Check it's not a comment or doctype
-                    if (tag_start + 1 < html.len and html[tag_start + 1] != '!') {
-                        open_count += 1;
-                    }
-                }
-            }
-        }
-    }
-
-    // Balanced: (open - self_closing) == close
-    if (open_count >= self_closing_count) {
-        return (open_count - self_closing_count) == close_count;
-    }
-    return false;
-}
-
-/// Validate HTML content
-/// Returns: 0 = valid, 1 = too large, 2 = unbalanced tags
-export fn safedom_validate_html(html: [*:0]const u8, len: c_uint) c_uint {
-    if (len > 1048576) {  // 1MB limit
-        return @intFromEnum(HTMLValidationResult.too_large);
-    }
-
-    if (len == 0) {
-        // Empty HTML is valid
-        return @intFromEnum(HTMLValidationResult.valid);
-    }
-
-    const slice = html[0..len];
-
-    // Check tag balance
-    if (!areTagsBalanced(slice)) {
-        return @intFromEnum(HTMLValidationResult.unbalanced_tags);
-    }
-
-    return @intFromEnum(HTMLValidationResult.valid);
+    clearError();
+    return .ok;
 }
 
 //==============================================================================
-// DOM Element Finding (Stub - requires actual DOM API)
+// String Operations
 //==============================================================================
 
-/// Find DOM element by selector
-/// Returns: element pointer (0 = not found)
-///
-/// NOTE: This is a stub implementation. In a real system, this would:
-/// 1. Interface with a browser's DOM implementation
-/// 2. Call document.querySelector(selector)
-/// 3. Return the actual element pointer
-///
-/// For now, we return a mock pointer for validation purposes
-export fn safedom_find_element(selector: [*:0]const u8) c_ulong {
-    // Stub: In production, this would call into browser DOM API
-    // For now, return a non-null mock pointer if selector is valid
-    const len = std.mem.len(selector);
-    const validation = safedom_validate_selector(selector, @intCast(len));
+/// Get a string result (example)
+/// Caller must free the returned string
+export fn rescript_dom_mounter_get_string(handle: ?*Handle) ?[*:0]const u8 {
+    const h = handle orelse {
+        setError("Null handle");
+        return null;
+    };
 
-    if (validation == @intFromEnum(ValidationResult.valid)) {
-        // Return a mock non-null pointer (would be real DOM element in production)
-        return 0x1000;  // Mock pointer
+    if (!h.initialized) {
+        setError("Handle not initialized");
+        return null;
     }
 
-    return 0;  // Not found
+    // Example: allocate and return a string
+    const result = h.allocator.dupeZ(u8, "Example result") catch {
+        setError("Failed to allocate string");
+        return null;
+    };
+
+    clearError();
+    return result.ptr;
+}
+
+/// Free a string allocated by the library
+export fn rescript_dom_mounter_free_string(str: ?[*:0]const u8) void {
+    const s = str orelse return;
+    const allocator = std.heap.c_allocator;
+
+    const slice = std.mem.span(s);
+    allocator.free(slice);
 }
 
 //==============================================================================
-// DOM Mounting (Stub - requires actual DOM API)
+// Array/Buffer Operations
 //==============================================================================
 
-/// Mount HTML content to DOM element
-/// Returns: 0 = success, 1 = null element, 2 = mount failed
-///
-/// NOTE: This is a stub implementation. In a real system, this would:
-/// 1. Verify element is non-null
-/// 2. Set element.innerHTML = html
-/// 3. Handle any errors
-export fn safedom_mount(element: c_ulong, html: [*:0]const u8) c_uint {
-    if (element == 0) {
-        return @intFromEnum(MountResult.null_element);
+/// Process an array of data
+export fn rescript_dom_mounter_process_array(
+    handle: ?*Handle,
+    buffer: ?[*]const u8,
+    len: u32,
+) Result {
+    const h = handle orelse {
+        setError("Null handle");
+        return .null_pointer;
+    };
+
+    const buf = buffer orelse {
+        setError("Null buffer");
+        return .null_pointer;
+    };
+
+    if (!h.initialized) {
+        setError("Handle not initialized");
+        return .@"error";
     }
 
-    const len = std.mem.len(html);
-    const validation = safedom_validate_html(html, @intCast(len));
+    // Access the buffer
+    const data = buf[0..len];
+    _ = data;
 
-    if (validation != @intFromEnum(HTMLValidationResult.valid)) {
-        return @intFromEnum(MountResult.mount_failed);
-    }
+    // Process data here
 
-    // Stub: In production, this would:
-    // ((DOMElement*)element)->innerHTML = html;
+    clearError();
+    return .ok;
+}
 
-    return @intFromEnum(MountResult.success);
+//==============================================================================
+// Error Handling
+//==============================================================================
+
+/// Get the last error message
+/// Returns null if no error
+export fn rescript_dom_mounter_last_error() ?[*:0]const u8 {
+    const err = last_error orelse return null;
+
+    // Return C string (static storage, no need to free)
+    const allocator = std.heap.c_allocator;
+    const c_str = allocator.dupeZ(u8, err) catch return null;
+    return c_str.ptr;
 }
 
 //==============================================================================
@@ -215,95 +195,80 @@ export fn safedom_mount(element: c_ulong, html: [*:0]const u8) c_uint {
 //==============================================================================
 
 /// Get the library version
-export fn safedom_version() [*:0]const u8 {
+export fn rescript_dom_mounter_version() [*:0]const u8 {
     return VERSION.ptr;
 }
 
-/// Get ABI version
-export fn safedom_abi_version() c_uint {
-    return ABI_VERSION;
+/// Get build information
+export fn rescript_dom_mounter_build_info() [*:0]const u8 {
+    return BUILD_INFO.ptr;
+}
+
+//==============================================================================
+// Callback Support
+//==============================================================================
+
+/// Callback function type (C ABI)
+pub const Callback = *const fn (u64, u32) callconv(.C) u32;
+
+/// Register a callback
+export fn rescript_dom_mounter_register_callback(
+    handle: ?*Handle,
+    callback: ?Callback,
+) Result {
+    const h = handle orelse {
+        setError("Null handle");
+        return .null_pointer;
+    };
+
+    const cb = callback orelse {
+        setError("Null callback");
+        return .null_pointer;
+    };
+
+    if (!h.initialized) {
+        setError("Handle not initialized");
+        return .@"error";
+    }
+
+    // Store callback for later use
+    _ = cb;
+
+    clearError();
+    return .ok;
+}
+
+//==============================================================================
+// Utility Functions
+//==============================================================================
+
+/// Check if handle is initialized
+export fn rescript_dom_mounter_is_initialized(handle: ?*Handle) u32 {
+    const h = handle orelse return 0;
+    return if (h.initialized) 1 else 0;
 }
 
 //==============================================================================
 // Tests
 //==============================================================================
 
-test "selector validation" {
-    // Valid selectors
-    try std.testing.expectEqual(
-        @intFromEnum(ValidationResult.valid),
-        safedom_validate_selector("#app", 4)
-    );
+test "lifecycle" {
+    const handle = rescript_dom_mounter_init() orelse return error.InitFailed;
+    defer rescript_dom_mounter_free(handle);
 
-    try std.testing.expectEqual(
-        @intFromEnum(ValidationResult.valid),
-        safedom_validate_selector(".container", 10)
-    );
-
-    try std.testing.expectEqual(
-        @intFromEnum(ValidationResult.valid),
-        safedom_validate_selector("div > p", 7)
-    );
-
-    // Invalid selectors
-    try std.testing.expectEqual(
-        @intFromEnum(ValidationResult.empty),
-        safedom_validate_selector("", 0)
-    );
-
-    const long_selector = "a" ** 256;
-    try std.testing.expectEqual(
-        @intFromEnum(ValidationResult.too_long),
-        safedom_validate_selector(long_selector.ptr, 256)
-    );
-
-    try std.testing.expectEqual(
-        @intFromEnum(ValidationResult.invalid_chars),
-        safedom_validate_selector("#app<script>", 12)
-    );
+    try std.testing.expect(rescript_dom_mounter_is_initialized(handle) == 1);
 }
 
-test "HTML validation" {
-    // Valid HTML
-    try std.testing.expectEqual(
-        @intFromEnum(HTMLValidationResult.valid),
-        safedom_validate_html("", 0)
-    );
+test "error handling" {
+    const result = rescript_dom_mounter_process(null, 0);
+    try std.testing.expectEqual(Result.null_pointer, result);
 
-    try std.testing.expectEqual(
-        @intFromEnum(HTMLValidationResult.valid),
-        safedom_validate_html("<div>test</div>", 15)
-    );
-
-    try std.testing.expectEqual(
-        @intFromEnum(HTMLValidationResult.valid),
-        safedom_validate_html("<img src='x' />", 15)
-    );
-
-    // Invalid HTML
-    try std.testing.expectEqual(
-        @intFromEnum(HTMLValidationResult.unbalanced_tags),
-        safedom_validate_html("<div>test", 9)
-    );
-
-    try std.testing.expectEqual(
-        @intFromEnum(HTMLValidationResult.unbalanced_tags),
-        safedom_validate_html("</div>", 6)
-    );
+    const err = rescript_dom_mounter_last_error();
+    try std.testing.expect(err != null);
 }
 
-test "element finding" {
-    const ptr = safedom_find_element("#app");
-    try std.testing.expect(ptr != 0);  // Should return mock pointer
-
-    const null_ptr = safedom_find_element("");
-    try std.testing.expectEqual(@as(c_ulong, 0), null_ptr);
-}
-
-test "mounting" {
-    const result = safedom_mount(0x1000, "<div>test</div>");
-    try std.testing.expectEqual(@intFromEnum(MountResult.success), result);
-
-    const null_result = safedom_mount(0, "<div>test</div>");
-    try std.testing.expectEqual(@intFromEnum(MountResult.null_element), null_result);
+test "version" {
+    const ver = rescript_dom_mounter_version();
+    const ver_str = std.mem.span(ver);
+    try std.testing.expectEqualStrings(VERSION, ver_str);
 }
